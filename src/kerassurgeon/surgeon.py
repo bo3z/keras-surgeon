@@ -12,7 +12,6 @@ from ._utils import node as node_utils
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 
-
 class Surgeon:
     """Performs network surgery on a model.
 
@@ -395,7 +394,7 @@ class Surgeon:
         if layer_class == 'InputLayer':
             raise RuntimeError('This should never get here!')
 
-        elif layer_class == 'Dense':
+        elif layer_class in ('Dense', 'QDense'):
             if np.all(inbound_masks):
                 new_layer = layer
             else:
@@ -410,7 +409,7 @@ class Surgeon:
             outbound_mask = np.reshape(inbound_masks, [-1, ])
             new_layer = layer
 
-        elif layer_class in ('Conv1D', 'Conv2D', 'Conv3D'):
+        elif layer_class in ('Conv1D', 'Conv2D', 'Conv3D', 'QConv1D', 'QConv2D'):
             if np.all(inbound_masks):
                 new_layer = layer
             else:
@@ -439,7 +438,7 @@ class Surgeon:
         elif layer_class in ('Cropping1D', 'Cropping2D', 'Cropping3D',
                              'MaxPooling1D', 'MaxPooling2D',
                              'MaxPooling3D',
-                             'AveragePooling1D', 'AveragePooling2D',
+                             'AveragePooling1D', 'AveragePooling2D', 'QAveragePooling2D',
                              'AveragePooling3D'):
             index = [slice(None, x, None) for x in output_shape[1:]]
             if data_format == 'channels_first':
@@ -506,7 +505,8 @@ class Surgeon:
                              'GaussianNoise',
                              'GaussianDropout',
                              'AlphaDropout',
-                             'ReLU'):
+                             'ReLU',
+                             'QActivation'):
             # Pass-through layers
             outbound_mask = inbound_masks
             new_layer = layer
@@ -555,7 +555,7 @@ class Surgeon:
             outbound_mask = np.concatenate(inbound_masks, axis=axis-1)
             new_layer = layer
 
-        elif layer_class in ('SimpleRNN', 'GRU', 'LSTM'):
+        elif layer_class in ('SimpleRNN', 'GRU', 'LSTM', 'QSimpleRNN', 'QLSTM', 'QGRU'):
             if np.all(inbound_masks):
                 new_layer = layer
             else:
@@ -635,18 +635,18 @@ class Surgeon:
         # Delete weights corresponding to deleted channels from config.
         # Except for recurrent layers, the weights' channels dimension is last.
         # Each recurrent layer type has a different internal weights layout.
-        if layer.__class__.__name__ == 'SimpleRNN':
+        if layer.__class__.__name__ in ('SimpleRNN', 'QSimpleRNN'):
             weights = [np.delete(w, channel_indices, axis=-1)
                        for w in layer.get_weights()]
             weights[1] = np.delete(weights[1], channel_indices, axis=0)
-        elif layer.__class__.__name__ == 'GRU':
+        elif layer.__class__.__name__ in ('GRU', 'QGRU'):
             # Repeat the channel indices for all internal GRU weights.
             channel_indices_gru = [layer.units * m + i for m in range(3)
                                    for i in channel_indices]
             weights = [np.delete(w, channel_indices_gru, axis=-1)
                        for w in layer.get_weights()]
             weights[1] = np.delete(weights[1], channel_indices, axis=0)
-        elif layer.__class__.__name__ == 'LSTM':
+        elif layer.__class__.__name__ in ('LSTM', 'QLSTM'):
             # Repeat the channel indices for all interal LSTM weights.
             channel_indices_lstm = [layer.units * m + i for m in range(4)
                                     for i in channel_indices]
